@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-# 
 # tournament.py -- implementation of a Swiss-system tournament
-#
 
 import psycopg2
+import math
 
 
 def connect():
@@ -11,27 +10,31 @@ def connect():
     return psycopg2.connect("dbname=tournament")
 
 
-def deleteMatches():
-    """Remove all the match records from the database."""
+def commit(psql):
+    """store in data base function"""
     conn = connect()
     c = conn.cursor()
-    c.execute("truncate matchsrecord restart identity")
-    c.execute("truncate numplayed restart identity")
-
+    c.execute(psql)
     conn.commit()
     conn.close()
+
+
+def deleteMatches():
+    """Remove all the match records from the database."""
+
+    commit("update players set points = 0")
+    commit("update players set match_played  = 0")
 
 
 def deletePlayers():
     """Remove all the player records from the database."""
-    conn = connect()
-    c = conn.cursor()
-    c.execute("truncate players restart identity")
-    conn.commit()
-    conn.close()
+
+    commit("truncate players restart identity")
+
 
 def countPlayers():
     """Returns the number of players currently registered."""
+
     conn = connect()
     c = conn.cursor()
     c.execute("select count(player_id) as num from players")
@@ -42,16 +45,16 @@ def countPlayers():
 
 def registerPlayer(name):
     """Adds a player to the tournament database.
-  
+
     The database assigns a unique serial id number for the player.  (This
     should be handled by your SQL database schema, not in your Python code.)
-  
     Args:
       name: the player's full name (need not be unique).
     """
+
     conn = connect()
     c = conn.cursor()
-    c.execute("insert into players values(%s)",(name,))
+    c.execute("insert into players values(%s)", (name,))
     conn.commit()
     conn.close()
 
@@ -59,8 +62,8 @@ def registerPlayer(name):
 def playerStandings():
     """Returns a list of the players and their win records, sorted by wins.
 
-    The first entry in the list should be the player in first place, or a player
-    tied for first place if there is currently a tie.
+    The first entry in the list should be the player in first place, or
+    a player tied for first place if there is currently a tie.
 
     Returns:
       A list of tuples, each of which contains (id, name, wins, matches):
@@ -69,14 +72,15 @@ def playerStandings():
         wins: the number of matches the player has won
         matches: the number of matches the player has played
     """
+
     conn = connect()
     c = conn.cursor()
-    c.execute("select players.player_id,players.name,matchsrecord.points,numplayed.mplayed from players left join matchsrecord on players.player_id=matchsrecord.player_id left join numplayed on matchsrecord.player_id=numplayed.player_id;")
+    c.execute("select player_id,name,points,match_played  from players")
     stand_table = c.fetchall()
     conn.close()
     return stand_table
 
-    
+
 def reportMatch(winner, loser):
     """Records the outcome of a single match between two players.
 
@@ -84,48 +88,33 @@ def reportMatch(winner, loser):
       winner:  the id number of the player who won
       loser:  the id number of the player who lost
     """
+
     conn = connect()
     c = conn.cursor()
-    c.execute("select points from matchsrecord where player_id = %d " % winner)
-
-    number_win = c.fetchone()
-    if number_win is not None:
-
-        n = number_win[0] + 1
-        c.execute("update matchsrecord set points = %d where player_id = %d"%(n,winner))
-    if number_win is None:
-        c.execute("insert into matchsrecord values(%d,1)" % winner)
-
-
-    c.execute("select mplayed from numplayed where player_id = %d " % winner)
-    countwi = c.fetchone()
-    if countwi is None :
-        c.execute("insert into numplayed values (%d,1)" % winner)
-    else:
-        countwp = countwi[0] + 1
-        c.execute("update numplayed set mplayed = %d where player_id = %d " % (countwp, winner))
-        
-    c.execute("select mplayed from numplayed where player_id = %d " % loser)
-    countlo = c.fetchone()
-    if countlo is None :
-        c.execute("insert into numplayed values (%d,1)" % loser)   
-    else :
-        countlp = countlo[0] + 1
-        c.execute("update numplayed set mplayed = %d where player_id = %d " % (countlp, loser))
-
-
+    c.execute("select points,match_played from players where player_id = %d"
+              % winner)
+    winner_p = c.fetchall()
+    wpoint = winner_p[0][0] + 1
+    wmatch_played = winner_p[0][1] + 1
+    c.execute("update players set points = %d where player_id = %d"
+              % (wpoint, winner))
+    c.execute("update players set match_played  = %d where player_id = %d"
+              % (wmatch_played, winner))
+    c.execute("select match_played from players where player_id = %d" % loser)
+    loser_p = c.fetchone()
+    lmatch_played = loser_p[0] + 1
+    c.execute("update players set match_played  = %d where player_id = %d"
+              % (lmatch_played, loser))
     conn.commit()
-
     conn.close()
+
 
 def swissPairings():
     """Returns a list of pairs of players for the next round of a match.
-  
     Assuming that there are an even number of players registered, each player
     appears exactly once in the pairings.  Each player is paired with another
-    player with an equal or nearly-equal win record, that is, a player adjacent
-    to him or her in the standings.
-  
+    player with an equal or nearly-equal win record, that is, a player
+    adjacent to him or her in the standings.
     Returns:
       A list of tuples, each of which contains (id1, name1, id2, name2)
         id1: the first player's unique id
@@ -134,21 +123,18 @@ def swissPairings():
         name2: the second player's name
     """
 
-
-# x = raw_input("enter player name")
-# registerPlayer(x)
-
-# reportMatch(5,4)
-# conn = connect()
-# c = conn.cursor()
-# c.execute("select * from matchsrecord")
-# print "id , point", c.fetchall()
-# c.execute("select * from numplayed")
-# print "played , id", c.fetchall()
-
-# conn.close()
-
-print playerStandings()
-
-# print countPlayers()
-# print "ok"
+    conn = connect()
+    c = conn.cursor()
+    max_match = math.log(countPlayers(), 2)
+    c.execute("select max(points),min(points) from players")
+    winner = c.fetchall()
+    if winner[0][0] == max_match:
+        d = "the tournament ended"
+        return d
+    else:
+        c.execute("select player_id , name from players order by points")
+        all_player = c.fetchall()
+        paired = []
+        for x in range(0, countPlayers()-1, 2):
+            paired.append(all_player[x]+all_player[x+1])
+        return paired
