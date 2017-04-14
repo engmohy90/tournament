@@ -10,37 +10,63 @@ def connect():
     return psycopg2.connect("dbname=tournament")
 
 
-def commit(psql):
+def commit(sql, data1=None, data2=None):
     """store in data base function"""
     conn = connect()
     c = conn.cursor()
-    c.execute(psql)
-    conn.commit()
-    conn.close()
+    if data1 is None and data2 is None:
+        c.execute(sql)
+        conn.commit()
+        conn.close()
+    if data1 is not None and data2 is not None:
+        c.execute(sql % (data1, data2))
+        conn.commit()
+        conn.close()
+    if data2 is None and data1 is not None:
+        c.execute(sql % data1)
+        conn.commit()
+        conn.close()
+
+
+def fetch_all(sql, data1=None, data2=None):
+    conn = connect()
+    c = conn.cursor()
+    if data1 is None and data2 is None:
+        c.execute(sql)
+        data = c.fetchall()
+        conn.close()
+        return data
+    if data1 is not None and data2 is not None:
+        c.execute(sql % (data1, data2))
+        data = c.fetchall()
+        conn.close()
+        return data
+
+    if data2 is None and data1 is not None:
+        c.execute(sql % data1)
+        data = c.fetchall()
+        conn.close()
+        return data
 
 
 def deleteMatches():
     """Remove all the match records from the database."""
 
-    commit("update players set points = 0")
-    commit("update players set match_played  = 0")
+    commit("TRUNCATE record")
+    commit("TRUNCATE match")
 
 
 def deletePlayers():
     """Remove all the player records from the database."""
 
-    commit("truncate players restart identity")
+    commit("TRUNCATE players RESTART IDENTITY")
 
 
 def countPlayers():
     """Returns the number of players currently registered."""
 
-    conn = connect()
-    c = conn.cursor()
-    c.execute("select count(player_id) as num from players")
-    num = c.fetchone()
-    conn.close()
-    return num[0]
+    num = fetch_all("SELECT count(player_id) as num from players")
+    return num[0][0]
 
 
 def registerPlayer(name):
@@ -54,7 +80,7 @@ def registerPlayer(name):
 
     conn = connect()
     c = conn.cursor()
-    c.execute("insert into players values(%s)", (name,))
+    c.execute("INSERT INTO players values(%s)", (name,))
     conn.commit()
     conn.close()
 
@@ -73,11 +99,7 @@ def playerStandings():
         matches: the number of matches the player has played
     """
 
-    conn = connect()
-    c = conn.cursor()
-    c.execute("select player_id,name,points,match_played  from players")
-    stand_table = c.fetchall()
-    conn.close()
+    stand_table = fetch_all("SELECT * FROM all_record")
     return stand_table
 
 
@@ -88,25 +110,34 @@ def reportMatch(winner, loser):
       winner:  the id number of the player who won
       loser:  the id number of the player who lost
     """
+    # record the winner points and number of played match
+    winner_p = fetch_all("SELECT points FROM record WHERE player_id = %d",
+                         winner)
+    if winner_p == []:
+        commit("INSERT INTO record VALUES (1,%d)", winner)
+    else:
+        wpoint = winner_p[0][0] + 1
+        commit("UPDATE record SET points=%d WHERE player_id = %d",
+               wpoint, winner)
 
-    conn = connect()
-    c = conn.cursor()
-    c.execute("select points,match_played from players where player_id = %d"
-              % winner)
-    winner_p = c.fetchall()
-    wpoint = winner_p[0][0] + 1
-    wmatch_played = winner_p[0][1] + 1
-    c.execute("update players set points = %d where player_id = %d"
-              % (wpoint, winner))
-    c.execute("update players set match_played  = %d where player_id = %d"
-              % (wmatch_played, winner))
-    c.execute("select match_played from players where player_id = %d" % loser)
-    loser_p = c.fetchone()
-    lmatch_played = loser_p[0] + 1
-    c.execute("update players set match_played  = %d where player_id = %d"
-              % (lmatch_played, loser))
-    conn.commit()
-    conn.close()
+    win_m = fetch_all("SELECT match_played FROM match WHERE player_id = %d",
+                      winner)
+    if win_m == []:
+        commit("INSERT INTO match VALUES (1,%d)", winner)
+    else:
+        wmatch_played = winner_p[0][0] + 1
+        commit("UPDATE match SET match_played=%d WHERE player_id=%d",
+               wmatch_played, winner)
+
+    # record the number of match loser played
+    loser_p = fetch_all("SELECT match_played FROM match WHERE player_id=%d",
+                        loser)
+    if loser_p == []:
+        commit("INSERT INTO match VALUES (1,%d)", loser)
+    else:
+        lmatch_played = loser_p[0][0] + 1
+        commit("UPDATE match SET match_played=%d WHERE player_id=%d",
+               lmatch_played, loser)
 
 
 def swissPairings():
@@ -123,18 +154,8 @@ def swissPairings():
         name2: the second player's name
     """
 
-    conn = connect()
-    c = conn.cursor()
-    max_match = math.log(countPlayers(), 2)
-    c.execute("select max(points),min(points) from players")
-    winner = c.fetchall()
-    if winner[0][0] == max_match:
-        d = "the tournament ended"
-        return d
-    else:
-        c.execute("select player_id , name from players order by points")
-        all_player = c.fetchall()
-        paired = []
-        for x in range(0, countPlayers()-1, 2):
-            paired.append(all_player[x]+all_player[x+1])
-        return paired
+    all_player = playerStandings()
+    paired = []
+    for x in range(0, countPlayers()-1, 2):
+        paired.append(all_player[x][:2]+all_player[x+1][:2])
+    return paired
