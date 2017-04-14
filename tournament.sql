@@ -15,11 +15,11 @@ CREATE TABLE players(
 );
 CREATE TABLE record(
         points int,
-        player_id  int primary key
+        player_id  int references players(player_id)
 );
 CREATE TABLE match(
         match_played int,
-        player_id  int primary key
+        player_id  int references players(player_id)
 );
 CREATE VIEW all_record AS
     SELECT 

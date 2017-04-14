@@ -59,7 +59,7 @@ def deleteMatches():
 def deletePlayers():
     """Remove all the player records from the database."""
 
-    commit("TRUNCATE players RESTART IDENTITY")
+    commit("TRUNCATE players RESTART IDENTITY CASCADE")
 
 
 def countPlayers():
